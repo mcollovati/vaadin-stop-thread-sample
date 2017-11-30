@@ -6,6 +6,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -24,6 +25,7 @@ import com.vaadin.ui.Notification;
 import com.vaadin.ui.TextField;
 import com.vaadin.ui.UI;
 import com.vaadin.ui.VerticalLayout;
+import com.vaadin.ui.themes.ValoTheme;
 
 /**
  * This UI is the application entry point. A UI may either represent a browser window
@@ -32,10 +34,11 @@ import com.vaadin.ui.VerticalLayout;
  * The UI is initialized using {@link #init(VaadinRequest)}. This method is intended to be
  * overridden to add component to the user interface and initialize non-component functionality.
  */
-@Theme("mytheme")
+@Theme(ValoTheme.THEME_NAME)
 @Push
 public class MyUI extends UI {
 
+    private ScheduledExecutorService executorService;
     private VerticalLayout layout;
     private Label progress = new Label();
 
@@ -61,6 +64,17 @@ public class MyUI extends UI {
         setContent(layout);
     }
 
+    @Override
+    public void attach() {
+        super.attach();
+        executorService = Executors.newScheduledThreadPool(5);
+    }
+
+    @Override
+    public void detach() {
+        super.detach();
+        executorService.shutdown();
+    }
 
     private void generateReport(UIAccessor uiAccessor) {
         uiAccessor.doWithUI(ui -> ((MyUI) ui).progress.setValue("Start"));
@@ -79,13 +93,13 @@ public class MyUI extends UI {
     }
 
 
-    public static CompletableFuture<?> limitExecutionTime(long timeoutMillis, Consumer<UIAccessor> lambda) {
+    public CompletableFuture<?> limitExecutionTime(long timeoutMillis, Consumer<UIAccessor> lambda) {
         UI currentUI = UI.getCurrent();
         UIAccessor accessor = new UIAccessor(currentUI);
         CompletableFuture<?> job = new CompletableFuture<>();
         CompletableFuture.runAsync(() -> {
-            Future<?> f = Executors.newSingleThreadExecutor().submit(() -> lambda.accept(accessor));
-            Executors.newSingleThreadScheduledExecutor().schedule(() -> f.cancel(true), timeoutMillis, TimeUnit.MILLISECONDS);
+            Future<?> f = executorService.submit(() -> lambda.accept(accessor));
+            executorService.schedule(() -> f.cancel(true), timeoutMillis, TimeUnit.MILLISECONDS);
             try {
                 f.get();
                 job.complete(null);
